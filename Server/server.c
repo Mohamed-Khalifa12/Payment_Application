@@ -13,7 +13,7 @@ ST_accountsDB_t accountsDB[255] = {
     {36250.0, RUNNING, "8569854123470264"}
 };
 
-int transCounter, dbIndex;
+int transCounter = -1, dbIndex;
 ST_transaction_t transaction[255];
 
 //CHEACK THE VALIDATION OF THE PAN VALUE
@@ -50,59 +50,107 @@ EN_serverError_t isAmountAvailable(ST_terminalData_t* termData, ST_accountsDB_t*
 	return SERVER_OK;
 }
 
+void listSavedTransactions(void)
+{
+	for(int i = 0; i<= transCounter; i++)
+	{
+		printf("\n#########################\n");
+		printf("Transaction Sequence Number: %d\n", transaction[i].transactionSequenceNumber);
+		printf("Transaction Date: %s\n", transaction[i].terminalData.transactionDate );
+		printf("Transaction Amount: %9.2f\n", transaction[i].terminalData.transAmount);
+		printf("Transaction State: %d\n",transaction[i].transState );
+		printf("Terminal Max Amount: %9.2f\n", transaction[i].terminalData.maxTransAmount);
+		printf("Cardholder Name: %s\n", transaction[i].cardHolderData.cardHolderName);
+		printf("PAN: %s\n", transaction[i].cardHolderData.primaryAccountNumber);
+		printf("Card Expiration Date: %s\n", transaction[i].cardHolderData.cardExpirationDate);
+		printf("#########################\n\n");
+	}
+}
+
 //SAVING TRANSACTION
 EN_serverError_t saveTransaction(ST_transaction_t* transData)
 {
-	ST_cardData_t cardData;
-	EN_cardError_t isValidName = getCardHolderName(&cardData);
-	EN_cardError_t isValidExpiryDate = getCardExpiryDate(&cardData);
-	EN_cardError_t isValidPan = getCardPAN(&cardData);
-	if (isValidName || isValidExpiryDate || isValidExpiryDate)
-		return SAVING_FAILED;
-	transData->cardHolderData = cardData;
-
-	ST_terminalData_t terminalData;
-	EN_terminalError_t isValidTranDate = getTransactionDate(&terminalData);
-	EN_terminalError_t isExpiredCard = isCardExpired(&cardData, &terminalData);
-	EN_terminalError_t isValidAmount = getTransactionAmount(&terminalData);
-	EN_terminalError_t isValidMax = setMaxAmount(&terminalData, 5000);
-	EN_terminalError_t isBelowMax = isBelowMaxAmount(&terminalData);
-	if (isValidTranDate || isExpiredCard || isValidAmount || isBelowMax || isValidMax)
-		return SAVING_FAILED;
-	transData->terminalData = terminalData;
-
-	ST_accountsDB_t refrence;
-
+	EN_transState_t result = recieveTransactionData(transData);
+	transData->transState = result;
+	transData->transactionSequenceNumber = ++transCounter;
+	transaction[transCounter] = *transData;
+	if(!result)
+		accountsDB[dbIndex].balance -= transData->terminalData.transAmount;
+	listSavedTransactions();
 	return SERVER_OK;
 }
 
 EN_transState_t recieveTransactionData(ST_transaction_t* transData)
 {
 	ST_accountsDB_t refrence;
-	transData->transState = APPROVED;
 
-	EN_serverError_t isNotSaved =  saveTransaction(transData);
-	if(isNotSaved)
-		transData->transState = INTERNAL_SERVER_ERROR;
+	ST_cardData_t cardData;
+	EN_cardError_t isValidName = getCardHolderName(&cardData);
+	if(isValidName)
+	{
+		printf("INVALID USER NAME !!\n");
+		return SAVING_FAILED;
+	}
+	EN_cardError_t isValidExpiryDate = getCardExpiryDate(&cardData);
+	if(isValidExpiryDate)
+	{
+		printf("WRONG FORMAT OF EXPIRY DATE !!\n");
+		return SAVING_FAILED;
+	}
+	EN_cardError_t isValidPan = getCardPAN(&cardData);
+	if(isValidExpiryDate)
+	{
+		printf("INVALID PIN NUMBER !!\n");
+		return SAVING_FAILED;
+	}	
+	transData->cardHolderData = cardData;
 
-	EN_serverError_t isNotValid = isValidAccount(&transData->cardHolderData, &refrence);
+	ST_terminalData_t terminalData;
+	EN_terminalError_t isValidTranDate = getTransactionDate(&terminalData);
+	if(isValidTranDate)
+	{
+		printf("INVALID FORMAT OF TRANSACTION DATE !!\n");
+		return TRANSACTION_NOT_FOUND;
+	}	
+	EN_terminalError_t isExpiredCard = isCardExpired(&cardData, &terminalData);
+	if(isExpiredCard)
+	{
+		printf("EXPIRED CARD!!\n");
+		return TRANSACTION_NOT_FOUND;
+	}	
+	EN_terminalError_t isValidAmount = getTransactionAmount(&terminalData);
+	if(isValidAmount)
+	{
+		printf("INVALID NUMBER !!\n");
+		return TRANSACTION_NOT_FOUND;
+	}	
+	EN_terminalError_t isValidMax = setMaxAmount(&terminalData, 5000);
+	if(isValidMax)
+	{
+		printf("INVALID NUMBER !!\n");
+		return TRANSACTION_NOT_FOUND;
+	}	
+	EN_terminalError_t isBelowMax = isBelowMaxAmount(&terminalData);
+	if(isBelowMax)
+	{
+		printf("ECXEED THE MAX VALUE !!\n");
+		return TRANSACTION_NOT_FOUND;
+	}	
+	transData->terminalData = terminalData;
+
+	EN_serverError_t isNotValid = isValidAccount(&cardData, &refrence);
 	if (isNotValid)
-		transData->transState = FRAUD_CARD;
+		return FRAUD_CARD;
 
 	EN_serverError_t isNotBlocked = isBlockedAccount(&refrence);
 	if (isNotBlocked)
-		transData->transState = DECLINED_STOLEN_CARD;
+		return DECLINED_STOLEN_CARD;
 
-	EN_serverError_t isNotSufficientAmount= isAmountAvailable(&transData->terminalData, &refrence);
+	EN_serverError_t isNotSufficientAmount= isAmountAvailable(&terminalData, &refrence);
 	if (isNotSufficientAmount)
-		transData->transState = DECLINED_INSUFFECIENT_FUND;
+		return DECLINED_INSUFFECIENT_FUND;
 
-	transData->transactionSequenceNumber = transCounter;
-	transaction[transCounter++] = *transData;
-
-	if(!transData->transState)
-		accountsDB[dbIndex].balance -= transData->terminalData.transAmount;
-	return transData->transState;
+	return APPROVED;
 }
 
 void isValidAccountTest(void)
@@ -198,19 +246,25 @@ void saveTransactionTest(void)
 {
 	printf("Tester Name: Mohamed Ahmed Ibrahim\nFunction Name : SaveTransaction\n\n");
 	ST_transaction_t trans1;
-	EN_serverError_t result1  = recieveTransactionData(&trans1);
-	printf("Test Case 1:\nInput Data : Mohamed Ahmed Ibrahim4 & 11/23 & 7546985214563205 & 2000\nExpected Result : 4\nActual Result :%d\n\n", result1);
-
-
+	EN_serverError_t result1  = saveTransaction(&trans1);
+	printf("The balance after trans: %9.2f\n", accountsDB[dbIndex].balance);
+	ST_transaction_t trans2;
+	EN_serverError_t result2  = saveTransaction(&trans2);
+	printf("The balance after trans: %9.2f\n\n\n", accountsDB[dbIndex].balance);
 }
 
 void recieveTransactionDataTest(void)
 {
-	ST_transaction_t trans;
-	printf("The balance before : %9.2f\n", accountsDB[dbIndex].balance);
-	recieveTransactionData(&trans);
-	printf("Name: %s\tPIN: %s\tExpiry:%s\n",trans.cardHolderData.cardHolderName, trans.cardHolderData.primaryAccountNumber, trans.cardHolderData.cardExpirationDate);
-	printf("Trans Amount: %9.2f\tMaxTransAmount: %9.2f\tTransDate:%s\n",trans.terminalData.transAmount, trans.terminalData.maxTransAmount, trans.terminalData.transactionDate);
-	printf("The state : %d\n", trans.transState);
-	printf("The balance after : %9.2f\n", accountsDB[dbIndex].balance);
+	printf("Tester Name: Mohamed Ahmed Ibrahim\nFunction Name : SaveTransaction\n\n");
+	ST_transaction_t trans1;
+	EN_transState_t result1 = recieveTransactionData(&trans1);
+	printf("Test Case 1:\nInput Data : Mohamed Ahmed Ibrahim & 11/23 & 7546985214563205 & 2000\nExpected Result : 0\nActual Result :%d\n\n", result1);
+	ST_transaction_t trans2;
+	EN_transState_t result2 = recieveTransactionData(&trans2);
+	printf("Test Case 1:\nInput Data : Mohamed Ahmed Ibrahim & 11/23 & 7546985214563114 & 2000\nExpected Result : 3\nActual Result :%d\n\n", result2);
+	ST_transaction_t trans3;
+	EN_transState_t result3 = recieveTransactionData(&trans3);
+	printf("Test Case 1:\nInput Data : Mohamed Ahmed Ibrahim & 11/23 & 5807007076043875 & 2000\nExpected Result : 2\nActual Result :%d\n\n", result3);
+	ST_transaction_t trans4;
+	EN_transState_t result4 = recieveTransactionData(&trans4);
 }

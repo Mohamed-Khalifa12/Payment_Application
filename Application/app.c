@@ -1,3 +1,6 @@
 #include "app.h";
 
-int x = 12;
+void appStart(void)
+{
+    
+}
