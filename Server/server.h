@@ -1,6 +1,5 @@
 #ifndef SERVER_H
 #define SERVER_H
-#include "../Card/card.h"
 #include "../Terminal/terminal.h"
 
 typedef int uint32_t;

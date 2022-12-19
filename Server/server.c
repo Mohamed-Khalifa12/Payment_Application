@@ -83,62 +83,7 @@ EN_serverError_t saveTransaction(ST_transaction_t* transData)
 EN_transState_t recieveTransactionData(ST_transaction_t* transData)
 {
 	ST_accountsDB_t refrence;
-
-	ST_cardData_t cardData;
-	EN_cardError_t isValidName = getCardHolderName(&cardData);
-	if(isValidName)
-	{
-		printf("INVALID USER NAME !!\n");
-		return SAVING_FAILED;
-	}
-	EN_cardError_t isValidExpiryDate = getCardExpiryDate(&cardData);
-	if(isValidExpiryDate)
-	{
-		printf("WRONG FORMAT OF EXPIRY DATE !!\n");
-		return SAVING_FAILED;
-	}
-	EN_cardError_t isValidPan = getCardPAN(&cardData);
-	if(isValidExpiryDate)
-	{
-		printf("INVALID PIN NUMBER !!\n");
-		return SAVING_FAILED;
-	}	
-	transData->cardHolderData = cardData;
-
-	ST_terminalData_t terminalData;
-	EN_terminalError_t isValidTranDate = getTransactionDate(&terminalData);
-	if(isValidTranDate)
-	{
-		printf("INVALID FORMAT OF TRANSACTION DATE !!\n");
-		return TRANSACTION_NOT_FOUND;
-	}	
-	EN_terminalError_t isExpiredCard = isCardExpired(&cardData, &terminalData);
-	if(isExpiredCard)
-	{
-		printf("EXPIRED CARD!!\n");
-		return TRANSACTION_NOT_FOUND;
-	}	
-	EN_terminalError_t isValidAmount = getTransactionAmount(&terminalData);
-	if(isValidAmount)
-	{
-		printf("INVALID NUMBER !!\n");
-		return TRANSACTION_NOT_FOUND;
-	}	
-	EN_terminalError_t isValidMax = setMaxAmount(&terminalData, 5000);
-	if(isValidMax)
-	{
-		printf("INVALID NUMBER !!\n");
-		return TRANSACTION_NOT_FOUND;
-	}	
-	EN_terminalError_t isBelowMax = isBelowMaxAmount(&terminalData);
-	if(isBelowMax)
-	{
-		printf("ECXEED THE MAX VALUE !!\n");
-		return TRANSACTION_NOT_FOUND;
-	}	
-	transData->terminalData = terminalData;
-
-	EN_serverError_t isNotValid = isValidAccount(&cardData, &refrence);
+	EN_serverError_t isNotValid = isValidAccount(&(transData->cardHolderData), &refrence);
 	if (isNotValid)
 		return FRAUD_CARD;
 
@@ -146,7 +91,7 @@ EN_transState_t recieveTransactionData(ST_transaction_t* transData)
 	if (isNotBlocked)
 		return DECLINED_STOLEN_CARD;
 
-	EN_serverError_t isNotSufficientAmount= isAmountAvailable(&terminalData, &refrence);
+	EN_serverError_t isNotSufficientAmount= isAmountAvailable(&(transData->terminalData), &refrence);
 	if (isNotSufficientAmount)
 		return DECLINED_INSUFFECIENT_FUND;
 
